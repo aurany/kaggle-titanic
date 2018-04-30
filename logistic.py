@@ -1,113 +1,128 @@
 import pandas as pd
 import numpy as np
-from sklearn import preprocessing
 import matplotlib.pyplot as plt 
-plt.rc("font", size=14)
 from sklearn.linear_model import LogisticRegression
-from sklearn.linear_model import LogisticRegressionCV
-from sklearn.cross_validation import train_test_split
-from sklearn.metrics import accuracy_score
-from sklearn import model_selection
-from sklearn.model_selection import cross_val_score
-from sklearn.metrics import confusion_matrix
-from sklearn.metrics import roc_auc_score
-from sklearn.feature_selection import RFE
-import seaborn as sns
-sns.set(style="white")
-sns.set(style="whitegrid", color_codes=True)
-import statsmodels.api as sm
-import sys
-
-# fix
-from scipy import stats
-stats.chisqprob = lambda chisq, df: stats.chi2.sf(chisq, df)
+from sklearn.model_selection import GridSearchCV, cross_val_score, KFold
 
 # read data
 train_data = pd.read_csv('~/.kaggle/competitions/titanic/train.csv')
 test_data = pd.read_csv('~/.kaggle/competitions/titanic/test.csv')
 submission_data_example = pd.read_csv('~/.kaggle/competitions/titanic/gender_submission.csv')
 
-print(train_data.head())
-print(test_data.head())
-
-# sns.countplot(x='Survived', data=train_data, palette='hls')
-# plt.show()
-
-# pd.crosstab(train_data.Pclass, train_data.Survived, normalize='index').plot(kind='bar', stacked=True)
-# pd.crosstab(train_data.Sex, train_data.Survived, normalize='index').plot(kind='bar', stacked=True)
-# pd.crosstab(train_data.Parch, train_data.Survived, normalize='index').plot(kind='bar', stacked=True)
-# pd.crosstab(train_data.Embarked, train_data.Survived, normalize='index').plot(kind='bar', stacked=True)
-# pd.crosstab(train_data.SibSp, train_data.Survived, normalize='index').plot(kind='bar', stacked=True)
-# plt.show()
-
+# create dummy variables
 train_data['is_male'] = train_data.apply(lambda row: 1 if row.Sex == 'male' else 0, axis=1)
 train_data['is_Pclass2'] = train_data.apply(lambda row: 1 if row.Pclass == 2 else 0, axis=1)
 train_data['is_Pclass3'] = train_data.apply(lambda row: 1 if row.Pclass == 3 else 0, axis=1)
 train_data['is_EmbarkedC'] = train_data.apply(lambda row: 1 if row.Embarked == 'C' else 0, axis=1)
 train_data['is_EmbarkedQ'] = train_data.apply(lambda row: 1 if row.Embarked == 'Q' else 0, axis=1)
-train_data['is_SibspLT4'] = train_data.apply(lambda row: 1 if row.SibSp < 4 else 0, axis=1)
-train_data['is_ParchLT4'] = train_data.apply(lambda row: 1 if row.Parch  < 4 else 0, axis=1)
+train_data['is_SibspParch1_3'] = train_data.apply(
+    lambda row: 1 if row.SibSp + row.Parch >= 1 and row.SibSp + row.Parch <= 3 else 0, axis=1
+    )
+train_data['is_SibspParch4p'] = train_data.apply(
+    lambda row: 1 if row.SibSp + row.Parch >= 4 else 0, axis=1
+    )
+train_data['Age'].fillna(value=train_data['Age'].median(), inplace=True)
+train_data['Fare'].fillna(value=train_data['Fare'].median(), inplace=True)
 
-train_data['Age'].fillna(value=train_data['Age'].mean(), inplace=True)
-train_data['Fare'].fillna(value=train_data['Fare'].mean(), inplace=True)
 
-# print(train_data.head(n=10))
-
-X = train_data[['Age', 'is_male', 'is_Pclass2', 'is_Pclass3', 'is_EmbarkedC', 'is_EmbarkedQ', 'is_SibspLT4', 'is_ParchLT4']]
+X = train_data[['Age', 'is_male', 'is_Pclass2', 'is_Pclass3', 'is_EmbarkedC', 'is_EmbarkedQ', 'is_SibspParch1_3', 'is_SibspParch4p']]
 y = train_data['Survived']
 
+# number of random trials
+NUM_TRIALS = 10
 
-# logreg = LogisticRegression()
-# rfe = RFE(logreg, 7)
-# rfe = rfe.fit(X, y)
-# print(rfe.support_)
-# print(rfe.ranking_)
+# set up possible values of parameters to optimize over
+param_grid = {'C': [0.01, 0.1, 0.5, 0.75, 1, 1.25, 1.5, 10, 100] }
 
-# sys.exit('Stopping...')
+# estimator
+logreg = LogisticRegression()
+
+# lists to store scores
+non_nested_scores = []
+nested_scores = []
+best_estimators = []
+best_hyper_params = []
+
+# loop for each trial
+for i in range(NUM_TRIALS):
+
+    # Choose cross-validation techniques for the inner and outer loops
+    inner_cv = KFold(n_splits=6, shuffle=True, random_state=i)
+    outer_cv = KFold(n_splits=6, shuffle=True, random_state=i)
+
+    # Non_nested parameter search and scoring
+    clf = GridSearchCV(estimator=logreg, param_grid=param_grid, cv=inner_cv, scoring='accuracy')
+    clf.fit(X, y)
+
+    non_nested_scores.append(clf.best_score_)
+    best_estimators.append(clf.best_estimator_)
+    best_hyper_params.append(clf.best_params_['C'])
+
+    # Nested CV with parameter optimization
+    nested_score = cross_val_score(clf, X=X, y=y, cv=outer_cv, scoring='accuracy', n_jobs=8)
+    nested_scores.append(nested_score.mean())
+
+# results
+result = pd.DataFrame(data = {
+    'nested_scores' : nested_scores,
+    'best_hyper_params' : best_hyper_params
+    })
+
+hyper_param_summary = result.groupby('best_hyper_params')['nested_scores'].count()
+print('')
+print('hyper param summary: ') 
+print(hyper_param_summary)
+
+best_hyper_param = hyper_param_summary.idxmax()
+print('')
+print('best hyper param: ', best_hyper_param)
+
+best_hyper_param_indices = [i for i, j in enumerate(best_hyper_params) if j == best_hyper_param]
+best_estimators_selected = [j for i, j in enumerate(best_estimators) if i in best_hyper_param_indices]
+best_estimator_selected = best_estimators_selected[0]
+print('')
+print('best estimator:')
+print(best_estimator_selected)
+
+# predictions
+test_data['is_male'] = test_data.apply(lambda row: 1 if row.Sex == 'male' else 0, axis=1)
+test_data['is_Pclass2'] = test_data.apply(lambda row: 1 if row.Pclass == 2 else 0, axis=1)
+test_data['is_Pclass3'] = test_data.apply(lambda row: 1 if row.Pclass == 3 else 0, axis=1)
+test_data['is_EmbarkedC'] = test_data.apply(lambda row: 1 if row.Embarked == 'C' else 0, axis=1)
+test_data['is_EmbarkedQ'] = test_data.apply(lambda row: 1 if row.Embarked == 'Q' else 0, axis=1)
+test_data['is_SibspParch1_3'] = test_data.apply(
+    lambda row: 1 if row.SibSp + row.Parch >= 1 and row.SibSp + row.Parch <= 3 else 0, axis=1
+    )
+test_data['is_SibspParch4p'] = test_data.apply(
+    lambda row: 1 if row.SibSp + row.Parch >= 4 else 0, axis=1
+    )
+test_data['Age'].fillna(value=test_data['Age'].median(), inplace=True)
+test_data['Fare'].fillna(value=test_data['Fare'].median(), inplace=True)
+
+X_test = test_data[['Age', 'is_male', 'is_Pclass2', 'is_Pclass3', 'is_EmbarkedC', 'is_EmbarkedQ', 'is_SibspParch1_3', 'is_SibspParch4p']]
+
+predictions = best_estimator_selected.predict(X_test)
+test_data['Survived'] = predictions
+
+test_data[['PassengerId','Survived']].to_csv('kaggle_titanic_submission_aurany_30apr2018.csv', index=False)
+
 
 '''
-logit_model = sm.Logit(y, X)
-result = logit_model.fit()
-print(result.summary())
-'''
+X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, test_size=0.2, random_state=777)
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0)
-
+logreg = LogisticRegressionCV(cv=10)
 logreg = LogisticRegression()
 logreg.fit(X_train, y_train)
 
-y_pred = logreg.predict(X_test)
-predictions_nocv = logreg.predict_proba(X_test)
+y_pred_label = logreg.predict(X_test)
+y_pred_proba = logreg.predict_proba(X_test)[:, 1]
+[fpr, tpr, thr] = roc_curve(y_test, y_pred_proba)
 
-print('Accuracy of logistic regression classifier on test set: {:.3f}'.format(accuracy_score(y_test, y_pred)))
+print('Accuracy of logistic regression classifier on test set: {:.3f}'.format(accuracy_score(y_test, y_pred_label)))
+print('ROC AUC score of logistic regression classifier on test set: {:.3f}'.format(roc_auc_score(y_test, y_pred_label)))
+print('ROC AUC curve of logistic regression classifier on test set: {:.3f}'.format(auc(fpr, tpr)))
 
-'''
-confusion_matrix = confusion_matrix(y_test, y_pred)
-print(confusion_matrix)
-print(roc_auc_score(y_test, logreg.predict(X_test)))
-'''
-
-kfold = model_selection.KFold(n_splits=7, random_state=777)
-modelCV = LogisticRegression()
-scoring = 'roc_auc'
-results = model_selection.cross_val_score(modelCV, X_train, y_train, cv=kfold, scoring=scoring)
-#predictions_cv = modelCV.predict_proba(X_test)
+results = model_selection.cross_val_score(logreg, X, y, cv=kfold, scoring='roc_auc')
+predictions_cv = modelCV.predict_proba(X_test)
 print("10-fold cross validation average accuracy: %.3f" % (results.mean()))
-
 '''
-plt.hist(np.log(predictions[:,0]))
-plt.show()
-'''
-
-
-logreg2 = LogisticRegressionCV(cv=kfold)
-logreg2.fit(X_train, y_train)
-
-y_pred2 = logreg2.predict(X_test)
-#predictions_nocv = logreg.predict_proba(X_test)
-
-print('Accuracy of logistic regression classifier on test set: {:.3f}'.format(accuracy_score(y_test, y_pred2)))
-
-results = model_selection.cross_val_score(logreg2, X_train, y_train, cv=kfold, scoring=scoring)
-#predictions_cv = modelCV.predict_proba(X_test)
-print("10-fold cross validation average accuracy: %.3f" % (results.mean()))
