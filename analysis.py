@@ -4,22 +4,20 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import sys
+from functions import get_data
+from math import ceil
 
-# Read data
-train_data = pd.read_csv('~/.kaggle/competitions/titanic/train.csv')
-test_data = pd.read_csv('~/.kaggle/competitions/titanic/test.csv')
-submission_data_example = pd.read_csv('~/.kaggle/competitions/titanic/gender_submission.csv')
+# read data
+train_data, test_data = get_data()
 
-if train_data.empty:
-    print('training data is empty!')
+train_data['AgeFloat'] = train_data.Age.astype(float)
 
-train_data.info()
-test_data.info()
+#train_data.info()
+#test_data.info()
 
-
-# Survivals
+# survivals
 sns.countplot(x='Survived', data=train_data, palette='hls')
-plt.show()
+
 
 
 # Stacked survival vs non survival percentage
@@ -28,8 +26,16 @@ pd.crosstab(train_data.Sex, train_data.Survived, normalize='index').plot(kind='b
 pd.crosstab(train_data.Parch, train_data.Survived, normalize='index').plot(kind='bar', stacked=True)
 pd.crosstab(train_data.Embarked, train_data.Survived, normalize='index').plot(kind='bar', stacked=True)
 pd.crosstab(train_data.SibSp, train_data.Survived, normalize='index').plot(kind='bar', stacked=True)
-
 pd.crosstab([train_data.SibSp + train_data.Parch], train_data.Survived, normalize='index').plot(kind='bar', stacked=True)
+
+pd.crosstab([train_data.Cabin.isnull()], train_data.Survived, normalize='index').plot(kind='bar', stacked=True)
+pd.crosstab([train_data.Age.isnull()], train_data.Survived, normalize='index').plot(kind='bar', stacked=True)
+
+
+
+pd.crosstab([ceil(train_data.Age / 5)*5], train_data.Survived, normalize='index').plot(kind='area', stacked=True)
+pd.crosstab(train_data.Age.round(decimals=-1), train_data.Survived, normalize='index').plot(kind='area', stacked=True)
+pd.crosstab(train_data.Fare.round(decimals=-1), train_data.Survived, normalize='index').plot(kind='area', stacked=True)
 
 plt.show()
 
