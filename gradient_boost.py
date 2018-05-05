@@ -2,7 +2,8 @@ import pandas as pd
 import numpy as np
 from scipy.stats import uniform
 import matplotlib.pyplot as plt 
-from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import GradientBoostingClassifier
+#from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, cross_val_score, KFold
 from functions import get_data, create_model_data
 import sys
@@ -16,13 +17,10 @@ y = train_data['Survived']
 X_test = create_model_data(test_data)
 
 # number of random trials
-NUM_TRIALS = 100
+NUM_TRIALS = 10
 
 # estimator
-logreg = LogisticRegression()
-
-# score
-# SET SCORE HERE, USE F1!!!
+estimator = GradientBoostingClassifier()
 
 # lists to store scores
 non_nested_scores = []
@@ -39,21 +37,23 @@ for i in range(NUM_TRIALS):
 
     # Non_nested parameter search and scoring
     #param_grid = {'C': [0.01, 0.1, 0.5, 0.75, 1, 1.25, 1.5, 10, 100] }
-    penalty = ['l1', 'l2']
-    C = uniform(loc=0, scale=1)
-    hyperparameters = dict(C=C, penalty=penalty)
+    param_grid = {'max_depth': [2, 3, 4]}
 
     #clf = GridSearchCV(estimator=logreg, param_grid=param_grid, cv=inner_cv, scoring='accuracy')
-    clf = RandomizedSearchCV(logreg, hyperparameters, n_iter=100 , cv=inner_cv, scoring='accuracy')
+    #clf = RandomizedSearchCV(estimator, hyperparameters, n_iter=100 , cv=inner_cv, scoring='accuracy')
+    clf = GridSearchCV(estimator, param_grid, scoring='accuracy', cv=inner_cv)
     clf.fit(X, y)
 
     non_nested_scores.append(clf.best_score_)
     best_estimators.append(clf.best_estimator_)
-    best_hyper_params.append(clf.best_params_['C'])
+    #best_hyper_params.append(clf.best_params_['C'])
 
     # Nested CV with parameter optimization
     nested_score = cross_val_score(clf, X=X, y=y, cv=outer_cv, scoring='accuracy', n_jobs=4)
     nested_scores.append(nested_score.mean())
+
+print(nested_scores)
+sys.exit()
 
 # results
 result = pd.DataFrame(data = {
